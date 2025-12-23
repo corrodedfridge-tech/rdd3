@@ -1,0 +1,394 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Echoes of the Great Divide - Frontier Expansion</title>
+    <style>
+        :root { 
+            --accent: #e5c07b; 
+            --bg: #0f1419; 
+            --panel: rgba(15, 20, 25, 0.9);
+            --gold: #d4af37;
+        }
+        body { margin: 0; overflow: hidden; background: var(--bg); font-family: 'Palatino', 'Georgia', serif; }
+        
+        #hud {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            pointer-events: none; display: flex; flex-direction: column; justify-content: space-between;
+            padding: 40px; box-sizing: border-box; z-index: 10;
+        }
+
+        .character-card { 
+            background: var(--panel); padding: 25px; 
+            border: 1px solid rgba(229, 192, 123, 0.2); color: white;
+            box-shadow: 0 15px 40px rgba(0,0,0,0.6); position: relative;
+        }
+        .character-card::before {
+            content: ""; position: absolute; top: 5px; left: 5px; right: 5px; bottom: 5px;
+            border: 1px solid rgba(229, 192, 123, 0.1); pointer-events: none;
+        }
+
+        .character-name { font-size: 1.6rem; letter-spacing: 5px; text-transform: uppercase; color: var(--gold); margin-bottom: 8px; }
+        .honor-label { font-size: 0.75rem; letter-spacing: 3px; opacity: 0.7; margin-bottom: 6px; }
+        .honor-track { width: 240px; height: 3px; background: #222; position: relative; overflow: hidden; }
+        #honor-fill { height: 100%; width: 50%; background: var(--gold); transition: width 1s cubic-bezier(0.19, 1, 0.22, 1); box-shadow: 0 0 10px var(--gold); }
+        
+        #crosshair {
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            width: 30px; height: 30px; border: 1px solid rgba(255,255,255,0.5); border-radius: 50%;
+            display: none; transition: all 0.2s;
+        }
+        #crosshair::after { content: ""; position: absolute; top: 50%; left: 50%; width: 2px; height: 2px; background: white; transform: translate(-50%, -50%); }
+
+        #prompt { 
+            position: absolute; top: 75%; left: 50%; transform: translate(-50%, -50%);
+            color: white; font-size: 1.1rem; text-align: center; opacity: 0; transition: all 0.3s;
+            background: var(--panel); padding: 15px 40px; border: 1px solid var(--gold);
+            letter-spacing: 3px; text-transform: uppercase; box-shadow: 0 0 20px rgba(0,0,0,0.5);
+        }
+
+        #location-pop {
+            position: absolute; top: 25%; left: 50%; transform: translateX(-50%);
+            color: white; text-align: center; opacity: 0; transition: all 1.5s ease-out;
+        }
+        #location-pop h2 { font-size: 3.5rem; font-weight: normal; letter-spacing: 15px; margin: 0; text-shadow: 0 0 30px rgba(0,0,0,1); }
+        #location-pop p { font-size: 0.9rem; letter-spacing: 5px; opacity: 0.6; text-transform: uppercase; margin-top: 10px; }
+
+        .vignette { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: radial-gradient(circle, transparent 30%, rgba(0,0,0,0.5) 100%); pointer-events: none; }
+        
+        .controls-hint { 
+            background: var(--panel); padding: 12px 25px; color: rgba(255,255,255,0.6); 
+            font-size: 0.75rem; letter-spacing: 1.5px; border-radius: 2px;
+        }
+        
+        #weapon-status { position: absolute; bottom: 40px; right: 40px; color: white; text-align: right; }
+        .ammo-count { font-size: 1.5rem; letter-spacing: 3px; color: var(--gold); }
+    </style>
+</head>
+<body>
+
+    <div class="vignette"></div>
+    <div id="crosshair"></div>
+    
+    <div id="hud">
+        <div style="display: flex; justify-content: space-between; align-items: flex-start; width: 100%;">
+            <div class="character-card">
+                <div class="character-name">Silas Thorne</div>
+                <div class="honor-label">REP: NEUTRAL</div>
+                <div class="honor-track"><div id="honor-fill"></div></div>
+            </div>
+            <div class="character-card" style="text-align: right; min-width: 180px;">
+                <div id="time-display" style="font-size: 1.4rem; letter-spacing: 2px;">12:00</div>
+                <div id="weather-display" style="font-size: 0.75rem; letter-spacing: 3px; color: var(--gold); margin-top: 5px;">HIGH NOON</div>
+            </div>
+        </div>
+        
+        <div id="location-pop">
+            <h2 id="loc-name">OAKHAVEN</h2>
+            <p>The Last Frontier</p>
+        </div>
+
+        <div style="display: flex; justify-content: space-between; align-items: flex-end; width: 100%;">
+            <div class="controls-hint">
+                WASD: Ride | SHIFT: Gallop | SPACE: Brake | RIGHT CLICK: Aim | LEFT CLICK: Fire | E: Interact | C: Weather | V: Perspective
+            </div>
+            <div id="weapon-status" class="character-card">
+                <div class="ammo-count">6 / 24</div>
+                <div style="font-size: 0.6rem; letter-spacing: 2px; opacity: 0.7;">REVOLVER .45</div>
+            </div>
+        </div>
+    </div>
+    
+    <div id="prompt">E - Secure Outpost</div>
+
+    <script type="importmap">
+        { "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js" } }
+    </script>
+
+    <script type="module">
+        import * as THREE from 'three';
+
+        // --- Config & State ---
+        const clock = new THREE.Clock();
+        const keys = {};
+        let worldTime = 12; 
+        let weatherMode = 'clear'; 
+        let honor = 50;
+        let isAiming = false;
+        let camDist = 14;
+        let currentVel = 0;
+        let rotationVel = 0;
+        let isFirstPerson = false;
+
+        // --- Scene Foundation ---
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x99ccff); 
+        scene.fog = new THREE.FogExp2(0x99ccff, 0.0015);
+
+        const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 15000);
+        const renderer = new THREE.WebGLRenderer({ antialias: true, logarithmicDepthBuffer: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.shadowMap.enabled = true;
+        renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+        renderer.toneMapping = THREE.ACESFilmicToneMapping;
+        renderer.toneMappingExposure = 1.2;
+        document.body.appendChild(renderer.domElement);
+
+        // --- Brighter Lighting ---
+        const sunPivot = new THREE.Group();
+        scene.add(sunPivot);
+
+        const sun = new THREE.DirectionalLight(0xfff9ef, 3);
+        sun.position.set(0, 1000, 0);
+        sun.castShadow = true;
+        sun.shadow.mapSize.set(4096, 4096);
+        sun.shadow.camera.left = -300;
+        sun.shadow.camera.right = 300;
+        sun.shadow.camera.top = 300;
+        sun.shadow.camera.bottom = -300;
+        sunPivot.add(sun);
+
+        const hemiLight = new THREE.HemisphereLight(0x87ceeb, 0x3d3321, 1.2);
+        scene.add(hemiLight);
+
+        // --- Improved Brighter Terrain ---
+        const terrainSize = 6000;
+        const terrainGeo = new THREE.PlaneGeometry(terrainSize, terrainSize, 128, 128);
+        terrainGeo.rotateX(-Math.PI / 2);
+        
+        const posAttr = terrainGeo.attributes.position;
+        for(let i=0; i < posAttr.count; i++) {
+            const x = posAttr.getX(i);
+            const z = posAttr.getZ(i);
+            // Dynamic landscape
+            let h = Math.sin(x/150) * Math.cos(z/150) * 12 + 
+                    Math.sin(x/40) * Math.cos(z/40) * 3;
+            if (Math.abs(x) > 1000 || Math.abs(z) > 1000) h += 50; // Distant mountains
+            posAttr.setY(i, h);
+        }
+        terrainGeo.computeVertexNormals();
+
+        // Lighter, more yellowish-green "Frontier" material
+        const terrainMat = new THREE.MeshStandardMaterial({ 
+            color: 0x8b8e5c, // Sage / Olive dried grass
+            roughness: 0.8,
+            metalness: 0.0
+        });
+        const terrain = new THREE.Mesh(terrainGeo, terrainMat);
+        terrain.receiveShadow = true;
+        scene.add(terrain);
+
+        // --- World Assets ---
+        const assets = new THREE.Group();
+        scene.add(assets);
+
+        function addTree(x, z) {
+            const h = 6 + Math.random() * 8;
+            const tree = new THREE.Group();
+            
+            const trunk = new THREE.Mesh(
+                new THREE.CylinderGeometry(0.3, 0.5, h/3),
+                new THREE.MeshStandardMaterial({color: 0x4a3728})
+            );
+            
+            const leaves = new THREE.Mesh(
+                new THREE.ConeGeometry(2, h, 8),
+                new THREE.MeshStandardMaterial({color: 0x2d3e2d})
+            );
+            leaves.position.y = h/2;
+            
+            tree.add(trunk, leaves);
+            tree.position.set(x, 0, z);
+            tree.castShadow = true;
+            tree.receiveShadow = true;
+            assets.add(tree);
+        }
+
+        function addRock(x, z) {
+            const size = 1 + Math.random() * 3;
+            const rock = new THREE.Mesh(
+                new THREE.DodecahedronGeometry(size),
+                new THREE.MeshStandardMaterial({color: 0x7c7c7c, roughness: 1})
+            );
+            rock.position.set(x, size/2, z);
+            rock.rotation.set(Math.random(), Math.random(), Math.random());
+            rock.castShadow = true;
+            assets.add(rock);
+        }
+
+        for(let i=0; i<400; i++) {
+            const rx = (Math.random()-0.5) * 2500;
+            const rz = (Math.random()-0.5) * 2500;
+            if(Math.abs(rx) > 25 || Math.abs(rz) > 25) {
+                if(Math.random() > 0.3) addTree(rx, rz);
+                else addRock(rx, rz);
+            }
+        }
+
+        // --- Player & Horse ---
+        const player = new THREE.Group();
+        
+        const hBody = new THREE.Mesh(new THREE.CapsuleGeometry(0.6, 1.8, 4, 12), new THREE.MeshStandardMaterial({color: 0x4e2c1c}));
+        hBody.rotation.z = Math.PI/2;
+        hBody.position.y = 1.3;
+        hBody.castShadow = true;
+
+        const hNeck = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.5, 1.4), new THREE.MeshStandardMaterial({color: 0x4e2c1c}));
+        hNeck.position.set(0, 2.1, 1);
+        hNeck.rotation.x = -0.7;
+
+        const silasThorne = new THREE.Mesh(new THREE.BoxGeometry(0.6, 1.5, 0.5), new THREE.MeshStandardMaterial({color: 0x1a1a1a}));
+        silasThorne.position.set(0, 2.4, -0.2);
+        silasThorne.castShadow = true;
+
+        player.add(hBody, hNeck, silasThorne);
+        scene.add(player);
+
+        // --- Weather & FX ---
+        const pCount = 10000;
+        const pGeo = new THREE.BufferGeometry();
+        const pPos = new Float32Array(pCount * 3);
+        for(let i=0; i<pCount*3; i++) pPos[i] = (Math.random()-0.5) * 800;
+        pGeo.setAttribute('position', new THREE.BufferAttribute(pPos, 3));
+        const pMat = new THREE.PointsMaterial({ size: 0.2, transparent: true, opacity: 0, color: 0xffffff });
+        const pSys = new THREE.Points(pGeo, pMat);
+        scene.add(pSys);
+
+        // --- Interactions & Controls ---
+        window.addEventListener('keydown', e => {
+            keys[e.code] = true;
+            if(e.code === 'KeyV') isFirstPerson = !isFirstPerson;
+            if(e.code === 'KeyC') cycleWeather();
+            if(e.code === 'KeyE') handleInteraction();
+        });
+        window.addEventListener('keyup', e => keys[e.code] = false);
+        window.addEventListener('mousedown', e => { if(e.button === 2) setAim(true); if(e.button === 0 && isAiming) fire(); });
+        window.addEventListener('mouseup', e => { if(e.button === 2) setAim(false); });
+        window.addEventListener('contextmenu', e => e.preventDefault());
+
+        function cycleWeather() {
+            const modes = ['clear', 'rain', 'snow'];
+            weatherMode = modes[(modes.indexOf(weatherMode) + 1) % modes.length];
+        }
+
+        function setAim(val) {
+            isAiming = val;
+            document.getElementById('crosshair').style.display = val ? 'block' : 'none';
+        }
+
+        function fire() {
+            console.log("BANG");
+            // Screen shake or muzzle flash logic
+        }
+
+        function handleInteraction() {
+            // Placeholder for proximity checks
+            triggerLocation("REDBANK OUTPOST", "Discovered");
+        }
+
+        function triggerLocation(name, sub) {
+            const el = document.getElementById('location-pop');
+            document.getElementById('loc-name').innerText = name;
+            el.querySelector('p').innerText = sub || "The Last Frontier";
+            el.style.opacity = 1;
+            el.style.top = '20%';
+            setTimeout(() => { el.style.opacity = 0; el.style.top = '25%'; }, 4000);
+        }
+
+        function updateEnv(dt) {
+            worldTime += dt * 0.05;
+            if(worldTime > 24) worldTime = 0;
+            
+            const h = Math.floor(worldTime);
+            const m = Math.floor((worldTime % 1) * 60);
+            document.getElementById('time-display').innerText = `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`;
+
+            // Brighter Sky Colors
+            const angle = (worldTime / 24) * Math.PI * 2;
+            sunPivot.rotation.x = angle;
+            
+            if(worldTime > 5 && worldTime < 19) {
+                const skyCol = new THREE.Color(0x99ccff); // Bright Noon
+                const fogCol = new THREE.Color(0x99ccff);
+                scene.background.lerp(skyCol, 0.05);
+                scene.fog.color.lerp(fogCol, 0.05);
+                sun.intensity = 3;
+            } else {
+                const nightCol = new THREE.Color(0x0a0c14); // Moonlit Night
+                scene.background.lerp(nightCol, 0.05);
+                scene.fog.color.lerp(nightCol, 0.05);
+                sun.intensity = 0.2;
+            }
+
+            // Weather system
+            if(weatherMode === 'rain') {
+                pMat.opacity = 0.5;
+                pMat.color.setHex(0xaabbff);
+                document.getElementById('weather-display').innerText = "STORM BREWING";
+            } else if(weatherMode === 'snow') {
+                pMat.opacity = 0.8;
+                pMat.color.setHex(0xffffff);
+                document.getElementById('weather-display').innerText = "WINTER'S GRIP";
+            } else {
+                pMat.opacity = 0;
+                document.getElementById('weather-display').innerText = worldTime > 18 || worldTime < 5 ? "STARRY NIGHT" : "HIGH NOON";
+            }
+
+            if(pMat.opacity > 0) {
+                const arr = pGeo.attributes.position.array;
+                for(let i=1; i<arr.length; i+=3) {
+                    arr[i] -= weatherMode === 'rain' ? 12 : 2;
+                    if(arr[i] < -2) arr[i] = 200;
+                }
+                pGeo.attributes.position.needsUpdate = true;
+            }
+        }
+
+        function animate() {
+            const dt = clock.getDelta();
+            updateEnv(dt);
+
+            // Horse Physics
+            const topSpeed = keys['ShiftLeft'] ? 1.5 : 0.6;
+            if(keys['KeyW']) currentVel += (topSpeed - currentVel) * dt * 2;
+            else if(keys['KeyS']) currentVel += (-0.3 - currentVel) * dt * 2;
+            else currentVel *= 0.985;
+
+            if(keys['Space']) currentVel *= 0.9;
+
+            if(keys['KeyA']) rotationVel += (0.04 - rotationVel) * dt * 10;
+            else if(keys['KeyD']) rotationVel += (-0.04 - rotationVel) * dt * 10;
+            else rotationVel *= 0.85;
+
+            player.rotation.y += rotationVel;
+            player.translateZ(currentVel);
+            player.rotation.z = -rotationVel * 4; // Leaning
+
+            // Dynamic Camera System
+            if(isFirstPerson) {
+                camera.position.copy(player.position).add(new THREE.Vector3(0, 2.6, 0.6).applyQuaternion(player.quaternion));
+                camera.lookAt(player.position.clone().add(new THREE.Vector3(0, 2, 10).applyQuaternion(player.quaternion)));
+            } else {
+                const aimShift = isAiming ? 2 : 0;
+                const offset = new THREE.Vector3(aimShift, 5 + currentVel, -camDist - (currentVel * 4)).applyQuaternion(player.quaternion);
+                camera.position.lerp(player.position.clone().add(offset), 0.12);
+                camera.lookAt(player.position.clone().add(new THREE.Vector3(0, 2.5, 0)));
+            }
+
+            renderer.render(scene, camera);
+            requestAnimationFrame(animate);
+        }
+
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+        triggerLocation("OAKHAVEN VALLEY", "Chapter I: The Price of Peace");
+        animate();
+
+    </script>
+</body>
+</html>
